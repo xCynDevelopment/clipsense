@@ -1,4 +1,4 @@
-﻿[project]
+[project]
 name = "clipsense"
 version = "0.1.0"
 description = "MCP server that lets Claude, ChatGPT and other AI models watch and listen to videos: transcripts plus scene-aware frames on one timeline."
