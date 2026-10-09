@@ -260,6 +260,21 @@ class Installer(tk.Tk):
             self.events.put(("error", str(e)))
 
 
+def selftest() -> None:
+    app = Installer()
+    app.install = lambda: None
+    app.use_desktop.set(True)
+    for expected in (1, 2, 3):
+        app.next()
+        app.update()
+        assert app.index == expected, f"stuck on page {app.index}"
+    app.index = 4
+    app.show()
+    app.update()
+    app.destroy()
+    print("selftest ok")
+
+
 if __name__ == "__main__":
     if sys.platform == "win32":
         try:
@@ -268,4 +283,7 @@ if __name__ == "__main__":
             ctypes.windll.shcore.SetProcessDpiAwareness(1)
         except Exception:
             pass
-    Installer().mainloop()
+    if "--selftest" in sys.argv:
+        selftest()
+    else:
+        Installer().mainloop()

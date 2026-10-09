@@ -1,0 +1,47 @@
+name: Build installers
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv build
+      - run: uv run --no-project --python 3.12 --with dist/*.whl python -c "import clipsense.server, clipsense.setup; print('package ok')"
+
+  installers:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            mode: --onefile
+            run: dist/clipsense-installer.exe
+            artifact: dist/clipsense-installer.exe
+          - os: macos-latest
+            mode: --onedir
+            run: dist/clipsense-installer.app/Contents/MacOS/clipsense-installer
+            artifact: dist/clipsense-installer-mac.zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Build
+        shell: bash
+        run: |
+          uv run --no-project --python 3.12 --with pyinstaller pyinstaller --noconfirm ${{ matrix.mode }} --windowed \
+            --name clipsense-installer installer/clipsense_installer.py
+      - name: Self-test
+        shell: bash
+        run: ${{ matrix.run }} --selftest
+      - name: Zip the Mac app
+        if: runner.os == 'macOS'
+        run: cd dist && ditto -c -k --keepParent clipsense-installer.app clipsense-installer-mac.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ runner.os }}
+          path: ${{ matrix.artifact }}
