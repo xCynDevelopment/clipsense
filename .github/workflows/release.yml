@@ -1,0 +1,45 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  pypi:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv build
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  installers:
+    needs: pypi
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: dist/clipsense-installer.exe
+          - os: macos-latest
+            artifact: dist/clipsense-installer-mac.zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Build installer
+        shell: bash
+        run: |
+          uv run --no-project --python 3.12 --with pyinstaller pyinstaller --noconfirm --onefile --windowed \
+            --name clipsense-installer installer/clipsense_installer.py
+      - name: Zip the Mac app
+        if: runner.os == 'macOS'
+        run: cd dist && ditto -c -k --keepParent clipsense-installer.app clipsense-installer-mac.zip
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.artifact }}

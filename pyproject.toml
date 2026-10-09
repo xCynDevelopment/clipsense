@@ -1,0 +1,46 @@
+﻿[project]
+name = "clipsense"
+version = "0.1.0"
+description = "MCP server that lets Claude, ChatGPT and other AI models watch and listen to videos: transcripts plus scene-aware frames on one timeline."
+readme = "README.md"
+authors = [
+    { name = "xCyn", email = "155592561+xCynDevelopment@users.noreply.github.com" }
+]
+requires-python = ">=3.10"
+license = "MIT"
+keywords = ["mcp", "video", "audio", "transcription", "whisper", "claude", "chatgpt", "llm"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+]
+dependencies = [
+    "imageio-ffmpeg>=0.6.0",
+    "mcp[cli]>=2.3.0",
+]
+
+[project.optional-dependencies]
+local = [
+    "faster-whisper>=1.2.1",
+]
+api = [
+    "openai>=3.28.0",
+]
+url = [
+    "yt-dlp[default,deno]>=2026.8.19",
+]
+sounds = [
+    "onnxruntime>=1.17",
+    "numpy>=1.24",
+    "huggingface-hub>=0.20",
+]
+all = [
+    "clipsense[local,api,url,sounds]",
+]
+
+[project.scripts]
+clipsense = "clipsense.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.12.21,<0.13.0"]
+build-backend = "uv_build"
