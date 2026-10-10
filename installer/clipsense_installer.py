@@ -51,8 +51,7 @@ class Installer(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("clipsense Setup")
-        self.geometry("600x460")
-        self.resizable(False, False)
+        self.s = self.ui_scale()
         style = ttk.Style(self)
         if "vista" in style.theme_names():
             style.theme_use("vista")
@@ -66,27 +65,97 @@ class Installer(tk.Tk):
         self.engine = tk.StringVar(value="local")
         self.groq_key = tk.StringVar()
         self.events: queue.Queue = queue.Queue()
+        self.wrapping: list[ttk.Label] = []
 
-        self.body = ttk.Frame(self, padding=(28, 24, 28, 8))
-        self.body.pack(fill="both", expand=True)
-        nav = ttk.Frame(self, padding=(28, 8, 28, 20))
-        nav.pack(fill="x")
-        self.back_btn = ttk.Button(nav, text="Back", command=self.back)
+        self.nav = ttk.Frame(self, padding=(self.px(28), self.px(8), self.px(28), self.px(16)))
+        self.nav.pack(side="bottom", fill="x")
+        self.back_btn = ttk.Button(self.nav, text="Back", command=self.back)
         self.back_btn.pack(side="left")
-        self.next_btn = ttk.Button(nav, text="Next", command=self.next)
+        self.next_btn = ttk.Button(self.nav, text="Next", command=self.next)
         self.next_btn.pack(side="right")
+
+        holder = ttk.Frame(self)
+        holder.pack(side="top", fill="both", expand=True)
+        background = style.lookup("TFrame", "background") or self.cget("background")
+        self.canvas = tk.Canvas(holder, highlightthickness=0, borderwidth=0, background=background)
+        self.scrollbar = ttk.Scrollbar(holder, orient="vertical", command=self.canvas.yview)
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+        self.canvas.pack(side="left", fill="both", expand=True)
+        self.body = ttk.Frame(self.canvas, padding=(self.px(28), self.px(24), self.px(28), self.px(8)))
+        self.body_window = self.canvas.create_window(0, 0, window=self.body, anchor="nw")
+        self.body.bind("<Configure>", lambda e: self.relayout())
+        self.canvas.bind("<Configure>", lambda e: self.relayout())
+        self.bind_all("<MouseWheel>", self.on_wheel)
+
+        width, height = self.size = self.fit(620, 480)
+        self.geometry(f"{width}x{height}+{(self.winfo_screenwidth() - width) // 2}+{(self.winfo_screenheight() - height) // 3}")
+        self.minsize(*self.fit(360, 300))
 
         self.pages = [self.page_welcome, self.page_apps, self.page_engine, self.page_install, self.page_done]
         self.index = 0
         self.show()
 
+    def ui_scale(self) -> float:
+        if SYSTEM == "Darwin":
+            return 1.0
+        return max(1.0, self.winfo_fpixels("1i") / 96)
+
+    def px(self, n: float) -> int:
+        return int(n * self.s)
+
+    def fit(self, width: int, height: int) -> tuple[int, int]:
+        return (min(self.px(width), int(self.winfo_screenwidth() * 0.92)),
+                min(self.px(height), int(self.winfo_screenheight() * 0.85)))
+
+    def relayout(self):
+        width, height = self.canvas.winfo_width(), self.canvas.winfo_height()
+        if width <= 1:
+            return
+        wrap = max(self.px(160), width - self.px(60))
+        for label in self.wrapping:
+            if int(str(label.cget("wraplength") or 0)) != wrap:
+                label.configure(wraplength=wrap)
+        needed = self.body.winfo_reqheight()
+        self.canvas.itemconfigure(self.body_window, width=width, height=max(height, needed))
+        self.canvas.configure(scrollregion=(0, 0, width, max(height, needed)))
+        overflow = needed > height + 2
+        if overflow and not self.scrollbar.winfo_ismapped():
+            self.scrollbar.pack(side="right", fill="y", before=self.canvas)
+        elif not overflow and self.scrollbar.winfo_ismapped():
+            self.scrollbar.pack_forget()
+            self.canvas.yview_moveto(0)
+
+    def grow_to_fit(self):
+        self.update_idletasks()
+        if self.winfo_ismapped():
+            self.size = (self.winfo_width(), self.winfo_height())
+        width, height = self.size
+        needed = self.body.winfo_reqheight() + self.nav.winfo_reqheight()
+        limit = int(self.winfo_screenheight() * 0.85)
+        if needed > height and height < limit:
+            self.size = (width, min(needed, limit))
+            self.geometry("{}x{}".format(*self.size))
+
+    def on_wheel(self, event):
+        if isinstance(event.widget, tk.Text) or not self.scrollbar.winfo_ismapped():
+            return
+        self.canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
+
+    def wrap_label(self, text: str, style: str = "Body.TLabel", **pack) -> ttk.Label:
+        label = ttk.Label(self.body, text=text, style=style, justify="left", wraplength=self.px(540))
+        label.pack(anchor="w", **pack)
+        self.wrapping.append(label)
+        return label
+
     def clear(self):
+        self.wrapping.clear()
         for child in self.body.winfo_children():
             child.destroy()
+        self.canvas.yview_moveto(0)
 
     def heading(self, title: str, text: str):
-        ttk.Label(self.body, text=title, style="Title.TLabel").pack(anchor="w")
-        ttk.Label(self.body, text=text, style="Body.TLabel", wraplength=540, justify="left").pack(anchor="w", pady=(8, 16))
+        self.wrap_label(title, "Title.TLabel")
+        self.wrap_label(text, pady=(self.px(8), self.px(16)))
 
     def show(self):
         self.clear()
@@ -94,6 +163,8 @@ class Installer(tk.Tk):
         self.next_btn.configure(text="Next", command=self.next)
         self.next_btn.state(["!disabled"])
         self.pages[self.index]()
+        self.relayout()
+        self.after_idle(self.grow_to_fit)
 
     def next(self):
         if self.index == 1 and not (self.use_desktop.get() or self.use_code.get() or self.use_cursor.get()):
@@ -125,27 +196,25 @@ class Installer(tk.Tk):
             ("Cursor", self.use_cursor, has_cursor()),
         ):
             label = text if found else f"{text}  (not found on this computer)"
-            ttk.Checkbutton(self.body, text=label, variable=var).pack(anchor="w", pady=4)
-        self.alert = ttk.Label(self.body, text="", style="Alert.TLabel")
-        self.alert.pack(anchor="w", pady=(12, 0))
+            ttk.Checkbutton(self.body, text=label, variable=var).pack(anchor="w", pady=self.px(4))
+        self.alert = self.wrap_label("", "Alert.TLabel", pady=(self.px(12), 0))
 
     def page_engine(self):
         self.heading("How should speech be transcribed?", "You can change this later by running setup again.")
         ttk.Radiobutton(self.body, text="Free, on this computer (recommended)", value="local",
-                        variable=self.engine, command=self.toggle_key).pack(anchor="w", pady=4)
-        ttk.Label(self.body, text="Private and free. Slower on older computers.", style="Body.TLabel",
-                  foreground="#555").pack(anchor="w", padx=24)
+                        variable=self.engine, command=self.toggle_key).pack(anchor="w", pady=self.px(4))
+        hint = self.wrap_label("Private and free. Slower on older computers.", padx=(self.px(24), 0))
+        hint.configure(foreground="#555")
         ttk.Radiobutton(self.body, text="Groq (faster and more accurate, free key)", value="groq",
-                        variable=self.engine, command=self.toggle_key).pack(anchor="w", pady=(14, 4))
+                        variable=self.engine, command=self.toggle_key).pack(anchor="w", pady=(self.px(14), self.px(4)))
         row = ttk.Frame(self.body)
-        row.pack(anchor="w", padx=24, fill="x")
-        self.key_entry = ttk.Entry(row, textvariable=self.groq_key, width=48, show="•")
-        self.key_entry.pack(side="left")
+        row.pack(anchor="w", padx=(self.px(24), 0), fill="x")
         link = ttk.Label(row, text="Get a free key", foreground="#2563eb", cursor="hand2")
-        link.pack(side="left", padx=10)
+        link.pack(side="right", padx=(self.px(10), 0))
         link.bind("<Button-1>", lambda e: webbrowser.open("https://console.groq.com/keys"))
-        self.alert = ttk.Label(self.body, text="", style="Alert.TLabel")
-        self.alert.pack(anchor="w", pady=(12, 0))
+        self.key_entry = ttk.Entry(row, textvariable=self.groq_key, width=20, show="•")
+        self.key_entry.pack(side="left", fill="x", expand=True)
+        self.alert = self.wrap_label("", "Alert.TLabel", pady=(self.px(12), 0))
         self.toggle_key()
 
     def toggle_key(self):
@@ -153,15 +222,13 @@ class Installer(tk.Tk):
 
     def page_install(self):
         self.heading("Installing", "This can take a few minutes the first time.")
-        self.step = ttk.Label(self.body, text="Starting...", style="Body.TLabel")
-        self.step.pack(anchor="w")
-        self.bar = ttk.Progressbar(self.body, mode="indeterminate", length=540)
-        self.bar.pack(anchor="w", pady=(8, 10))
+        self.step = self.wrap_label("Starting...")
+        self.bar = ttk.Progressbar(self.body, mode="indeterminate")
+        self.bar.pack(fill="x", pady=(self.px(8), self.px(10)))
         self.bar.start(12)
-        self.alert = ttk.Label(self.body, text="", style="Alert.TLabel", wraplength=540, justify="left")
-        self.alert.pack(anchor="w")
-        self.log = tk.Text(self.body, height=10, font=("Consolas", 9), relief="flat", background="#f4f4f5")
-        self.log.pack(fill="both", expand=True, pady=(8, 0))
+        self.alert = self.wrap_label("", "Alert.TLabel")
+        self.log = tk.Text(self.body, height=8, font=("Consolas", 9), relief="flat", background="#f4f4f5", wrap="word")
+        self.log.pack(fill="both", expand=True, pady=(self.px(8), 0))
         self.next_btn.state(["disabled"])
         threading.Thread(target=self.install, daemon=True).start()
         self.after(100, self.pump)
@@ -175,7 +242,7 @@ class Installer(tk.Tk):
         box.insert("1.0", EXAMPLE)
         box.configure(state="disabled")
         box.pack(fill="x")
-        ttk.Button(self.body, text="Copy", command=self.copy_example).pack(anchor="w", pady=8)
+        ttk.Button(self.body, text="Copy", command=self.copy_example).pack(anchor="w", pady=self.px(8))
         self.next_btn.configure(text="Finish", command=self.destroy)
 
     def copy_example(self):
